@@ -152,67 +152,104 @@ for ind in range(len(BOLLvec_ma)):
     BOLLvec_upper[ind] = Boll[1]
     BOLLvec_lower[ind] = Boll[2]
 
+seq_len_list = [i for i in range(1,21)]
+split_list = [0.5, 0.6, 0.7, 0.8, 0.9]
 
-# Data Preperation
-seq_len = 22
-nb_features = 1#len(df.columns)
-data = df.loc[:,['V1','V2']].as_matrix() 
-nb_features = data.shape[1]#1#len(df.columns)
-sequence_length = seq_len + 1 # index starting from 0
-result = []
+seq_len_list = [3]
+split_list = [0.9]
 
-for index in range(len(data) - sequence_length): # maxmimum date = lastest date - sequence length
-    result.append(data[index: index + sequence_length]) # index : index + 22days
+df_res_train = pd.DataFrame(0, index=split_list, columns=seq_len_list)
+df_res_val = df_res_train.copy()
+df_pearson_r = df_res_train.copy()
+res = np.zeros((len(split_list), len(seq_len_list), 3), dtype=np.float32)
 
-result = np.array(result)
-row = round(0.9 * result.shape[0]) # 90% split
+for i, seq_len_value in enumerate(seq_len_list):
+	for j, train_test_split in enumerate(split_list):
+		# Data Preperation
+		seq_len = seq_len_value
+		nb_features = 1#len(df.columns)
+		#data = df.as_matrix() 
+		data = df.loc[:,['V1']].as_matrix() 
+		nb_features = data.shape[1]#1#len(df.columns)
+		sequence_length = seq_len + 1 # index starting from 0
+		result = []
 
-X_train = result[:int(row),:-1,:] # all data until day m
-y_train = result[:int(row),-1,-1] # day m + 1 adjusted close price
+		for index in range(len(data) - sequence_length): # maxmimum date = lastest date - sequence length
+		    result.append(data[index: index + sequence_length]) # index : index + 22days
 
-X_test = result[int(row):,:-1,:]
-y_test = result[int(row):,-1,-1] 
+		result = np.array(result)
+		row = round((1-train_test_split) * result.shape[0]) # split
 
-#X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], nb_features))
-#X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], nb_features))  
+		roi_to_predict = 0 #corresponds to first
 
-# Model Building
-d = 0.2
-shape = [nb_features, seq_len, 1] # feature, window, output
-neurons = [128, 128, 32, 1]
+		X_train = result[:int(row),:-1,:] # all data until day m
+		y_train = result[:int(row),-1,0] # day m + 1 adjusted close price
 
-with tf.device("/gpu:0"):
-
-	model = []
-	model = Sequential()
-	model.add(LSTM(units=neurons[0], return_sequences=True, input_shape=(X_train.shape[1],X_train.shape[2])))
-	model.add(Dropout(d))
-	model.add(LSTM(neurons[1], return_sequences=False, input_shape=(X_train.shape[1],X_train.shape[2])))
-	model.add(Dropout(d))
-	model.add(Dense(neurons[2],kernel_initializer="uniform",activation='relu'))        
-	model.add(Dense(neurons[3],kernel_initializer="uniform",activation='linear'))
-	#model.add(Activation('linear'))
-
-	#model = multi_gpu_model(model, gpus=1)
-	model.compile(loss='mse', optimizer='rmsprop')
-	#model.compile(loss='mse',optimizer='adam', metrics=['accuracy'])
-	#model.summary()
-
-	# Model Fitting
-	model.fit(X_train, y_train, batch_size=512, epochs=50, validation_split=0.1, verbose=1)
-
-# Results
-trainScore = model.evaluate(X_train, y_train, verbose=0)
-print('Train Score: %.5f MSE (%.2f RMSE)' % (trainScore, math.sqrt(trainScore)))
-
-testScore = model.evaluate(X_test, y_test, verbose=0)
-print('Test Score: %.5f MSE (%.2f RMSE)' % (testScore, math.sqrt(testScore)))
+		X_test = result[int(row):,:-1,:]
+		y_test = result[int(row):,-1,0] 
 
 
-from scipy import stats
-from scipy.stats.stats import pearsonr
+		#X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], nb_features))
+		#X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], nb_features))  
 
-prediction = model.predict(X_test)
-prediction = np.squeeze(prediction)
-pearsonr(prediction,y_test)
+		# Model Building
+		d = 0.2
+		shape = [nb_features, seq_len, 1] # feature, window, output
+		neurons = [128, 128, 32, 1]
 
+		#import IPython
+		#IPython.embed()
+
+		with tf.device("/gpu:0"):
+
+			model = []
+			model = Sequential()
+			model.add(LSTM(units=neurons[0], return_sequences=True, input_shape=(X_train.shape[1],X_train.shape[2])))
+			model.add(Dropout(d))
+			model.add(LSTM(neurons[1], return_sequences=False, input_shape=(X_train.shape[1],X_train.shape[2])))
+			model.add(Dropout(d))
+			model.add(Dense(neurons[2],kernel_initializer="uniform",activation='relu'))        
+			model.add(Dense(neurons[3],kernel_initializer="uniform",activation='linear'))
+			#model.add(Activation('linear'))
+
+			#model = multi_gpu_model(model, gpus=1)
+			model.compile(loss='mse', optimizer='rmsprop')
+			#model.compile(loss='mse',optimizer='adam', metrics=['accuracy'])
+			#model.summary()
+
+			#import IPython
+			#IPython.embed()
+			# Model Fitting
+			model.fit(X_train, y_train, batch_size=512, epochs=50, validation_split=train_test_split, verbose=1)
+		#import IPython
+		#IPython.embed()
+
+		# Results
+		trainScore = model.evaluate(X_train, y_train, verbose=0)
+		print('Train Score: %.5f MSE (%.2f RMSE)' % (trainScore, math.sqrt(trainScore)))
+		res[j][i][0] = trainScore
+
+		testScore = model.evaluate(X_test, y_test, verbose=0)
+		print('Test Score: %.5f MSE (%.2f RMSE)' % (testScore, math.sqrt(testScore)))
+		res[j][i][1] = testScore
+
+
+		from scipy import stats
+		from scipy.stats.stats import pearsonr
+
+		prediction = model.predict(X_test)
+		prediction = np.squeeze(prediction)
+		pearsonr(prediction,y_test)
+		
+		print(df_res_train[seq_len_value][train_test_split])
+		print(trainScore, type(trainScore))
+		#df_pearson_r[seq_len_value][train_test_split] = pearsonr(prediction, y_test)
+
+for i, seq_len_value in enumerate(seq_len_list):
+	for j, train_test_split in enumerate(split_list):
+		df_res_train.iloc[j, i] = res[j,i,0]
+		df_res_val.iloc[j, i] = res[j,i,1]
+		
+
+#df_res_train.to_csv('mse_results_train.csv', index=False)
+#df_res_val.to_csv('mse_results_test.csv', index=False)
